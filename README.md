@@ -1,4 +1,4 @@
-# Simple Requests C++
+# HTTPRequests C++
 Easy to use library that can handle a variety of HTTP client side communication within Linux C++ applications
 
 # How do I import this?
