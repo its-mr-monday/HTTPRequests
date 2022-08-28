@@ -55,7 +55,7 @@ void get_google_jwt() {
 
 //Will POST to the route http://example.com/api/v1/example with a JWT auth token "TEST_TOKEN"
 //The following data: { 'message': 'Hello World!' }
-void post_example() {
+void post_example_jwt() {
   std::string encodedJson = "{ 'message': 'Hello World!' }";
   HTTPPostRequest request = CreateJsonPostRequest("http://example.com/api/v1/example", encodedJson);
   addHeader(request, "Authorization", "TEST_TOKEN");
@@ -76,5 +76,21 @@ void download_example() {
   HTTPGetRequest request = CreateGetRequest("https://example.com/download/test.txt");
   HTTPResponse response = HTTPGet(request);
   downloadFile(response, outfile);  //Will attempt to download the file within the body to the outfile location
+}
+```
+
+# Uploading a file via POST request **ONLY MIME FORMAT**
+```cpp
+#include "requests.hpp"
+
+//Will upload a file in MIME format to the route https://example.com/upload
+//Must have the inner data of the file saved to a std::string
+void upload_example(std::string fileData, std::string fileName) {
+  HTTPPostRequest request = CreateMimePostRequest("https://example.com/upload", fileName, fileData);
+  HTTPResponse response = HTTPPost(request);
+  //To see the status code
+  std::cout << response.status_code << std::endl;
+  //To see the body
+  std::cout << response.body << std::endl;
 }
 ```
