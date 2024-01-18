@@ -1,25 +1,37 @@
 /*
-    Copyright 2022 by Zackary Morvan, Cyber M Technologies.
+    Copyright 2024 by Zackary Morvan, Cyber M Technologies.
     All rights reserved
-    This file is part of the Simple Requests C++ Project, and is released 
+    This file is part of the HTTPRequests C++ Library, and is released 
     under the "MIT License Agreement". Please see the LICENSE file that 
     should have been included as part of this package
 */
 
-
 #include "requests.hpp"
-#include <cstdlib>
+#include <iostream>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <cstdlib>
+#include <cstring>
+#include <sstream>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#ifdef __unix__
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <cstring>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 #include <netdb.h>
-#include <sstream>
-#include <filesystem>
-#include <fstream>
+#else
+#include <winsock2.h>
+#include <windows.h>
+#include <ws2tcpip.h>
+#include <shlwapi.h>
+
+// Need to link with Ws2_32.lib, Mswsock.lib, and Advapi32.lib
+#pragma comment (lib, "Ws2_32.lib")
+#pragma comment (lib, "Mswsock.lib")
+#pragma comment (lib, "AdvApi32.lib")
+#endif
 
 typedef std::string string;
 
@@ -28,7 +40,6 @@ static int always_true_callback(X509_STORE_CTX *ctx, void *arg)
     return 1;
 }
 
-//Split a string into a vector of strings by a delimiter
 std::vector<std::string> split(std::string str, char delimiter) {
   std::vector<std::string> internal;
   std::stringstream ss(str); // Turn the string into a stream.
@@ -41,18 +52,43 @@ std::vector<std::string> split(std::string str, char delimiter) {
   return internal;
 }
 
-
-//Validates string "ip" is a valid ip address
-bool is_ip_address(string ip)
+bool is_number(std::string s)
 {
+    int dotCount = 0;
+    if (s.empty())
+       return false;
+    for (char c : s )
+    {
+       if ( !(std::isdigit(c) || c == '.' ) && dotCount > 1 )
+       {
+          return false;
+       }
+       dotCount += (c == '.');
+    }
+    return true;
+}
+
+bool is_ip_address(string ip) {
+#ifdef __unix__
     struct sockaddr_in sa;
     int result = inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr));
     return result != 0;
+#else
+    std::vector<string> ip_split = split(ip, '.');
+    if (ip_split.size() != 4) {
+        return false;
+    }
+    for (string s : ip_split) {
+        if (!is_number(s)) {
+            return false;
+        }
+    }
+    return true;
+#endif
 }
 
-//resolves dnsnames to ip addresses
 string resolvdnsname(string dnsname) {
-    //resolve dns name to ip address
+#ifdef __unix__
     struct hostent *host;
     host = gethostbyname(dnsname.c_str());
     if (host == NULL) {
@@ -60,26 +96,70 @@ string resolvdnsname(string dnsname) {
     }
     char *ip = inet_ntoa(*(struct in_addr *)host->h_addr);
     return string(ip);
+#else
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    struct hostent *he = gethostbyname(dnsname.c_str());
+    if (he == NULL) {
+        return "";
+    }
+    char *ip = inet_ntoa(*(struct in_addr *)he->h_addr_list[0]);
+    return string(ip);
+#endif
 }
 
-//downloads a file to outfile from the HTTPResponse object
-void downloadFile(HTTPResponse response, std::string outfile) {
-    //the file data should be within the body of the response
-    //write this file to outfile
-    //Do not write if outfile exists
+void downloadFile(HTTPResponse response, string outfile) {
+#ifdef __unix__
     if (std::filesystem::exists(outfile)) {
         return;
     }
+#else
+    if (PathFileExistsA(outfile.c_str()) == TRUE) {
+        return;
+    }
+#endif
     std::ofstream outfile_stream(outfile, std::ios::out | std::ios::binary);
     outfile_stream.write(response.body.c_str(), response.body.length());
     outfile_stream.close();
     return;
 }
 
-//Will send a raw https packet and return a raw response
-//Host must be resolved AF_INET
+SSL_CTX *initSSL(bool verify) {
+    SSL_library_init();
+    SSL_CTX *ctx;
+#ifdef __unix__
+    SSLeay_add_ssl_algorithms();
+    SSL_load_error_strings();
+    ctx = SSL_CTX_new(TLS_client_method());
+    if (!verify) {
+        SSL_CTX_set_verify_callback(ctx, always_true_callback, NULL);
+    }
+#else
+    SSL_load_error_strings();
+    OpenSSL_add_all_algorithms();
+    ctx = SSL_CTX_new(TLS_client_method());
+    if (!verify) {
+        SSL_CTX_set_cert_verify_callback(ctx, always_true_callback, NULL);
+    }
+#endif
+    return ctx;
+}
+
+#ifdef __unix__
+void CloseSocket(int socket) {
+    close(socket);
+}
+#else
+void CloseSocket(SOCKET socket) {
+    closesocket(socket);
+}
+#endif
+
 string send_ssl_payload(string host, int port, string packet, bool verify) {
-    //Bug where read is blocking
+    if (!is_ip_address(host)) {
+        host = resolvdnsname(host);
+    }
+#ifdef __unix__
     string result;
     int sockfd;
     int sslsockfd;
@@ -92,36 +172,27 @@ string send_ssl_payload(string host, int port, string packet, bool verify) {
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
     sa.sin_addr.s_addr = inet_addr(host.c_str());
-    socklen_t socklen = sizeof(sa);
-    if (connect(sockfd, (struct sockaddr *)&sa , socklen) < 0) {
+    socklen_tr socklen = sizeof(sa);
+    if (connect(sockfd, (struct sockaddr *)&sa, socklen) < 0) {
         return "";
     }
-    SSL_library_init();
-    SSLeay_add_ssl_algorithms();
-    SSL_load_error_strings();
-    const SSL_METHOD *method = TLS_client_method();
-    SSL_CTX *ctx = SSL_CTX_new(method);
-    if (verify == false) {
-        SSL_CTX_set_cert_verify_callback(ctx, always_true_callback, NULL);
-    }
+    SSL_CTX *ctx = initSSL(verify);
     SSL *ssl = SSL_new(ctx);
     if (!ssl) {
         return "";
     }
     sslsockfd = SSL_get_fd(ssl);
     SSL_set_fd(ssl, sockfd);
-    if (SSL_connect(ssl) <= 0) {
+    if (SSL_connect(ssl) < 0) {
         return "";
     }
-    int sent = SSL_write(ssl, packet.c_str(), packet.length());
-    if (sent < 0) {
+    int bytesSent = SSL_write(ssl, packet.c_str(), packet.size());
+    if (bytesSent <= 0) {
         return "";
     }
 
     char buffer[4096];
     int size = 0;
-    //read http response to stringstream
-
     while (true) {
         int read = SSL_read(ssl, buffer, 4096);
         size += read;
@@ -129,18 +200,76 @@ string send_ssl_payload(string host, int port, string packet, bool verify) {
         if (read < 4096) {
             break;
         }
-        //result += string(buffer, read);
     }
 
-    //Cleanup
     SSL_free(ssl);
     SSL_CTX_free(ctx);
-    close(sockfd); 
+    close(sockfd);
     return result;
+#else
+    
+    SSL_CTX *ctx = initSSL(verify);
+    SSL *ssl;
+    BIO* bio = BIO_new_ssl_connect(ctx);
+    if (bio == NULL) {
+        return "";
+    }
+    BIO_get_ssl(bio, &ssl);
+    SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
+    BIO_set_conn_hostname(bio, (host + ":" + std::to_string(port)).c_str());
+    if (BIO_do_connect(bio) <= 0) {
+        BIO_free_all(bio);
+        SSL_CTX_free(ctx);
+        return "";
+    }
+    if (BIO_do_handshake(bio) <= 0) {
+        BIO_free_all(bio);
+        SSL_CTX_free(ctx);
+        return "";
+    }
+
+    //Send over socket
+    int bytesSent = SSL_write(ssl, packet.c_str(), packet.size());
+    if (bytesSent <= 0) {
+        BIO_free_all(bio);
+        SSL_CTX_free(ctx);
+        return "";
+    }
+    if (bytesSent < packet.size()) {
+        BIO_free_all(bio);
+        SSL_CTX_free(ctx);
+        return "";
+    }
+    char buf[4096];
+    string response = "";
+    int bytesReceived = 0;
+    while (true) {
+        bytesReceived = SSL_read(ssl, buf, 4096);
+        if (bytesReceived < 1) {
+            break;
+        }
+        response += string(buf, bytesReceived);
+        if (SSL_pending(ssl) < 1) {
+            break;
+        }
+    }
+
+    if (bytesReceived < 0) {
+        BIO_free_all(bio);
+        SSL_CTX_free(ctx);
+        return "";
+    }
+    BIO_free_all(bio);
+    SSL_CTX_free(ctx);
+    return response;
+#endif
 }
 
-//Will send a raw http packet and return a raw response
 string send_payload(string host, int port, string packet) {
+    if (!is_ip_address(host)) {
+        host = resolvdnsname(host);
+    }
+#ifdef __unix__
     string result;
     int sockfd;
     struct sockaddr_in sa;
@@ -161,7 +290,6 @@ string send_payload(string host, int port, string packet) {
         return "";
     }
     char buffer[4096];
-    //read response to stringstream
     while (true) {
         int read = recv(sockfd, buffer, 4096, 0);
         result += string(buffer, read);
@@ -171,6 +299,61 @@ string send_payload(string host, int port, string packet) {
     }
     close(sockfd);
     return result;
+#else
+    WSADATA wsaData;
+    SOCKET sock = INVALID_SOCKET;
+    struct addrinfo *result = NULL, *ptr = NULL, hints;
+    int iResult;
+    int recvbuflen = 4096;
+    iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
+    if (iResult != 0) {
+        return "";
+    }
+    ZeroMemory( &hints, sizeof(hints) );
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    iResult = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &result);
+    if ( iResult != 0 ) {
+        WSACleanup();
+        return "";
+    }
+    for(ptr=result; ptr != NULL ;ptr=ptr->ai_next) {
+        sock = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
+        if (sock == INVALID_SOCKET) {
+            WSACleanup();
+            return "";
+        }
+        iResult = connect( sock, ptr->ai_addr, (int)ptr->ai_addrlen);
+        if (iResult == SOCKET_ERROR) {
+            closesocket(sock);
+            sock = INVALID_SOCKET;
+            continue;
+        }
+        break;
+    }
+    freeaddrinfo(result);
+    if (sock == INVALID_SOCKET) {
+        WSACleanup();
+        return "";
+    }
+    iResult = send(sock, packet.c_str(), packet.size(), 0);
+    if (iResult == SOCKET_ERROR) {
+        closesocket(sock);
+        WSACleanup();
+        return "";
+    }
+    char recvbuf[4096];
+    string response = "";
+    int received = 0;
+    while ((received = recv(sock, recvbuf, recvbuflen, 0)) > 0) {
+        response += string(recvbuf, received);
+    }
+    closesocket(sock);
+    WSACleanup();
+    return response;
+#endif
 }
 
 //Will encode a HTTPGetRequest struct to a payload string

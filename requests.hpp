@@ -1,19 +1,19 @@
 /*
-    Copyright 2022 by Zackary Morvan, Cyber M Technologies.
+    Copyright 2024 by Zackary Morvan, Cyber M Technologies.
     All rights reserved
-    This file is part of the Simple Requests C++ Project, and is released 
+    This file is part of the HTTPRequests C++ Library, and is released 
     under the "MIT License Agreement". Please see the LICENSE file that 
     should have been included as part of this package
 */
-
 
 #include <string>
 #include <vector>
 #include <map>
 #include <string.h>
 #include <stdio.h>
-#include <iostream>
+#ifdef __unix__
 #include <unistd.h>
+#endif
 
 std::vector<std::string> split(std::string str, char delimiter);
 

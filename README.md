@@ -1,5 +1,6 @@
 # HTTPRequests C++
-Easy to use library that can handle a variety of HTTP client side communication within Linux C++ applications
+Easy to use library that can handle a variety of HTTP client side communication within Windows and Linux C++ applications
+**Requires the OpenSSL library to be installed on the system**
 
 # How do I import this?
 Its simple just copy the requests.hpp and requests.cpp files into your C++ project and include #include "requests.hpp" in any file you are making Web Requests from
