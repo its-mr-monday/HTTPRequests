@@ -1,5 +1,5 @@
 /*
-    Copyright 2024 by Zackary Morvan, Cyber M Technologies.
+    Copyright 2024 by its-mr-monday.
     All rights reserved
     This file is part of the HTTPRequests C++ Library, and is released 
     under the "MIT License Agreement". Please see the LICENSE file that 
