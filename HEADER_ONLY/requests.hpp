@@ -5,8 +5,14 @@
     under the "MIT License Agreement". Please see the LICENSE file that 
     should have been included as part of this package
 */
-
-#include "requests.hpp"
+#ifndef REQUESTS_HPP
+#define REQUESTS_HPP
+#pragma once
+#include <string>
+#include <vector>
+#include <map>
+#include <string.h>
+#include <stdio.h>
 #include <iostream>
 #include <ctime>
 #include <filesystem>
@@ -17,10 +23,12 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #ifdef __unix__
+#include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+typedef int SOCKET;
 #else
 #include <winsock2.h>
 #include <windows.h>
@@ -33,12 +41,49 @@
 #pragma comment (lib, "AdvApi32.lib")
 #endif
 
+//Struct defining a HTTPGetRequest
+struct HTTPGetRequest {
+    std::string url;
+    std::map<std::string, std::string> headers;
+    std::string method;
+    std::string host;
+    std::string path;
+    std::string ipaddr;
+    int port;
+    std::string protocol;
+    bool isSsl;
+    bool sslVerify;
+};
+
+//Struct defining a HTTPPostRequest
+struct HTTPPostRequest {
+    std::string url;
+    std::map<std::string, std::string> headers;
+    std::string body;
+    std::string method;
+    std::string host;
+    std::string path;
+    std::string ipaddr;
+    int port;
+    std::string protocol;
+    bool isSsl;
+    bool sslVerify;
+};
+
+//Struct defining a HTTPResponse
+struct HTTPResponse {
+    std::string body;
+    std::map<std::string, std::string> headers;
+    int status_code;
+};
+
 typedef std::string string;
 
 static int always_true_callback(X509_STORE_CTX *ctx, void *arg)
 {
     return 1;
 }
+
 
 std::vector<std::string> split(std::string str, char delimiter) {
   std::vector<std::string> internal;
@@ -68,25 +113,7 @@ bool is_number(std::string s)
     return true;
 }
 
-bool is_ip_address(string ip) {
-#ifdef __unix__
-    struct sockaddr_in sa;
-    int result = inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr));
-    return result != 0;
-#else
-    std::vector<string> ip_split = split(ip, '.');
-    if (ip_split.size() != 4) {
-        return false;
-    }
-    for (string s : ip_split) {
-        if (!is_number(s)) {
-            return false;
-        }
-    }
-    return true;
-#endif
-}
-
+//Resolves a DNS name to an IP address
 string resolvdnsname(string dnsname) {
 #ifdef __unix__
     struct hostent *host;
@@ -108,20 +135,24 @@ string resolvdnsname(string dnsname) {
 #endif
 }
 
-void downloadFile(HTTPResponse response, string outfile) {
+//Validates string "ip" is a valid ip address
+bool is_ip_address(string ip) {
 #ifdef __unix__
-    if (std::filesystem::exists(outfile)) {
-        return;
-    }
+    struct sockaddr_in sa;
+    int result = inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr));
+    return result != 0;
 #else
-    if (PathFileExistsA(outfile.c_str()) == TRUE) {
-        return;
+    std::vector<string> ip_split = split(ip, '.');
+    if (ip_split.size() != 4) {
+        return false;
     }
+    for (string s : ip_split) {
+        if (!is_number(s)) {
+            return false;
+        }
+    }
+    return true;
 #endif
-    std::ofstream outfile_stream(outfile, std::ios::out | std::ios::binary);
-    outfile_stream.write(response.body.c_str(), response.body.length());
-    outfile_stream.close();
-    return;
 }
 
 SSL_CTX *initSSL(bool verify) {
@@ -142,7 +173,7 @@ SSL_CTX *initSSL(bool verify) {
 }
 
 #ifdef __unix__
-void CloseSocket(int socket) {
+void CloseSocket(SOCKET socket) {
     close(socket);
 }
 #else
@@ -151,6 +182,70 @@ void CloseSocket(SOCKET socket) {
 }
 #endif
 
+//Will encode a HTTPGetRequest struct to a payload string
+string encode_payload(HTTPGetRequest request) {
+    string result;
+    result += "GET " + request.path + " HTTP/1.1\r\n";
+    result += "Host: " + request.host + "\r\n";
+    //Go through each header
+    for (auto header : request.headers) {
+        result += header.first + ": " + header.second + "\r\n";
+    }
+    result += "\r\n";
+    return result;
+}
+
+//Will decode a HTTP response string to a HTTPResponse struct
+HTTPResponse decodePacket(string packet) {
+    HTTPResponse response;
+    response.headers = std::map<string, string>();
+    //Split packet into lines
+    std::vector<string> lines = split(packet, '\n');
+    //Get first line
+    string firstline = lines[0];
+    //Split first line into parts
+    std::vector<string> firstlineparts = split(firstline, ' ');
+    //Get status code
+    response.status_code = stoi(firstlineparts[1]);
+
+    
+    int currentIndex = 1;
+    for (int i = 1; i < lines.size(); i++) {
+        currentIndex +=1;
+        if (lines[i] == "\r") {
+            break;
+        }
+        std::vector<string> headerparts = split(lines[i], ':');
+        response.headers[headerparts[0]] = headerparts[1];
+    }
+    //Get body
+    string body = "";
+    for (int i = currentIndex; i < lines.size(); i++) {
+        body += lines[i];
+    }
+    response.body = body;
+    return response;
+
+}
+
+//Will encode a HTTPPostRequest struct to a payload string
+string encode_payload(HTTPPostRequest request) {
+    string result;
+    std::stringstream ss;
+    ss << ("POST " + request.path + " HTTP/1.1\r\n");
+    ss << ("Host: " + request.host + "\r\n");
+    //Go through each header
+    for (auto header : request.headers) {
+        ss << (header.first + ": " + header.second + "\r\n");
+    }
+    ss << ("Content-Length: " + std::to_string(request.body.length()) + "\r\n");
+    ss << "\r\n";
+    ss << request.body;
+    return ss.str();
+}
+
+//Will send a raw http packet over SSL and return a raw response
+//Host must be resolved AF_INET
 string send_ssl_payload(string host, int port, string packet, bool verify) {
     if (!is_ip_address(host)) {
         host = resolvdnsname(host);
@@ -261,6 +356,8 @@ string send_ssl_payload(string host, int port, string packet, bool verify) {
 #endif
 }
 
+//Will send a raw http packet and return a raw response
+//Host must be resolved AF_INET
 string send_payload(string host, int port, string packet) {
     if (!is_ip_address(host)) {
         host = resolvdnsname(host);
@@ -352,67 +449,25 @@ string send_payload(string host, int port, string packet) {
 #endif
 }
 
-//Will encode a HTTPGetRequest struct to a payload string
-string encode_payload(HTTPGetRequest request) {
-    string result;
-    result += "GET " + request.path + " HTTP/1.1\r\n";
-    result += "Host: " + request.host + "\r\n";
-    //Go through each header
-    for (auto header : request.headers) {
-        result += header.first + ": " + header.second + "\r\n";
+
+//downloads a file to outfile from the HTTPResponse object
+//if outfile exists no file will be written
+void downloadFile(HTTPResponse response, string outfile) {
+#ifdef __unix__
+    if (std::filesystem::exists(outfile)) {
+        return;
     }
-    result += "\r\n";
-    return result;
+#else
+    if (PathFileExistsA(outfile.c_str()) == TRUE) {
+        return;
+    }
+#endif
+    std::ofstream outfile_stream(outfile, std::ios::out | std::ios::binary);
+    outfile_stream.write(response.body.c_str(), response.body.length());
+    outfile_stream.close();
+    return;
 }
 
-//Will decode a HTTP response string to a HTTPResponse struct
-HTTPResponse decodePacket(string packet) {
-    HTTPResponse response;
-    response.headers = std::map<string, string>();
-    //Split packet into lines
-    std::vector<string> lines = split(packet, '\n');
-    //Get first line
-    string firstline = lines[0];
-    //Split first line into parts
-    std::vector<string> firstlineparts = split(firstline, ' ');
-    //Get status code
-    response.status_code = stoi(firstlineparts[1]);
-
-    
-    int currentIndex = 1;
-    for (int i = 1; i < lines.size(); i++) {
-        currentIndex +=1;
-        if (lines[i] == "\r") {
-            break;
-        }
-        std::vector<string> headerparts = split(lines[i], ':');
-        response.headers[headerparts[0]] = headerparts[1];
-    }
-    //Get body
-    string body = "";
-    for (int i = currentIndex; i < lines.size(); i++) {
-        body += lines[i];
-    }
-    response.body = body;
-    return response;
-
-}
-
-//Will encode a HTTPPostRequest struct to a payload string
-string encode_payload(HTTPPostRequest request) {
-    string result;
-    std::stringstream ss;
-    ss << ("POST " + request.path + " HTTP/1.1\r\n");
-    ss << ("Host: " + request.host + "\r\n");
-    //Go through each header
-    for (auto header : request.headers) {
-        ss << (header.first + ": " + header.second + "\r\n");
-    }
-    ss << ("Content-Length: " + std::to_string(request.body.length()) + "\r\n");
-    ss << "\r\n";
-    ss << request.body;
-    return ss.str();
-}
 
 //Will add/set a "key" header with "value" to a HTTPGetRequest struct
 void addHeader(HTTPGetRequest &request, string key, string value) {
@@ -423,8 +478,46 @@ void addHeader(HTTPPostRequest &request, string key, string value) {
     request.headers[key] = value;
 }
 
+//Function for getting headers
+string getHeader(HTTPGetRequest &request, string key) {
+    return request.headers[key];
+}
+//Function for getting headers
+string getHeader(HTTPPostRequest &request, string key) {
+    return request.headers[key];
+}
+//Function for getting headers
+string getHeader(HTTPResponse &response, string key) {
+    return response.headers[key];
+}
+
+//Will dispatch a HTTPGetRequest to the server and return a HTTPResponse
+HTTPResponse HTTPGet(HTTPGetRequest request) {
+    string payload = encode_payload(request);
+    string raw_response;
+
+    if (request.isSsl) {
+        raw_response = send_ssl_payload(request.ipaddr, request.port, payload, request.sslVerify);
+    } else {
+        raw_response = send_payload(request.ipaddr, request.port, payload);
+    }
+    return decodePacket(raw_response);
+}
+//Will dispatch a HTTPPostRequest to its server and return a HTTPResponse
+HTTPResponse HTTPPost(HTTPPostRequest request) {
+    string payload = encode_payload(request);
+    string raw_response;
+
+    if (request.isSsl) {
+        raw_response = send_ssl_payload(request.ipaddr, request.port, payload, request.sslVerify);
+    } else {
+        raw_response = send_payload(request.ipaddr, request.port, payload);
+    }
+    return decodePacket(raw_response);
+}
+
 //Will create a HTTPGetRequest struct
-HTTPGetRequest CreateGetRequest(string url, bool acceptJson) {
+HTTPGetRequest CreateGetRequest(string url, bool acceptJson = false) {
     HTTPGetRequest request;
     request.headers = std::map<string, string>();
     request.sslVerify = true;
@@ -626,43 +719,7 @@ HTTPPostRequest CreateMimePostRequest(string url, string filename, string fileda
     return request;
 }
 
-//Function for getting headers
-string getHeader(HTTPGetRequest &request, string key) {
-    return request.headers[key];
-}
-string getHeader(HTTPPostRequest &request, string key) {
-    return request.headers[key];
-}
-string getHeader(HTTPResponse &response, string key) {
-    return response.headers[key];
-}
-
-//Will dispatch a HTTPGetRequest to the server and return a HTTPResponse
-HTTPResponse HTTPGet(HTTPGetRequest request) {
-    string payload = encode_payload(request);
-    string raw_response;
-
-    if (request.isSsl) {
-        raw_response = send_ssl_payload(request.ipaddr, request.port, payload, request.sslVerify);
-    } else {
-        raw_response = send_payload(request.ipaddr, request.port, payload);
-    }
-    return decodePacket(raw_response);
-}
-
-//Will dispatch a HTTPPostRequest to its server and return a HTTPResponse
-HTTPResponse HTTPPost(HTTPPostRequest request) {
-    string payload = encode_payload(request);
-    string raw_response;
-
-    if (request.isSsl) {
-        raw_response = send_ssl_payload(request.ipaddr, request.port, payload, request.sslVerify);
-    } else {
-        raw_response = send_payload(request.ipaddr, request.port, payload);
-    }
-    return decodePacket(raw_response);
-}
-
+//Simple test case
 void test_get_google() {
     HTTPGetRequest request = CreateGetRequest("https://www.google.com");
     HTTPResponse response = HTTPGet(request);
@@ -674,3 +731,4 @@ void test_get_google() {
         std::cout << "Failure" << std::endl;
     }
 }
+#endif

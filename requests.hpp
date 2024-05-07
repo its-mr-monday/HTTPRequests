@@ -5,7 +5,9 @@
     under the "MIT License Agreement". Please see the LICENSE file that 
     should have been included as part of this package
 */
-
+#ifndef REQUESTS_HPP
+#define REQUESTS_HPP
+#pragma once
 #include <string>
 #include <vector>
 #include <map>
@@ -107,3 +109,4 @@ std::string resolvdnsname(std::string dnsname);
 bool is_ip_address(std::string ip);
 
 void test_get_google();
+#endif
