@@ -22,7 +22,7 @@
 #include <sstream>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -115,7 +115,7 @@ bool is_number(std::string s)
 
 //Resolves a DNS name to an IP address
 string resolvdnsname(string dnsname) {
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     struct hostent *host;
     host = gethostbyname(dnsname.c_str());
     if (host == NULL) {
@@ -137,7 +137,7 @@ string resolvdnsname(string dnsname) {
 
 //Validates string "ip" is a valid ip address
 bool is_ip_address(string ip) {
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     struct sockaddr_in sa;
     int result = inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr));
     return result != 0;
@@ -158,7 +158,7 @@ bool is_ip_address(string ip) {
 SSL_CTX *initSSL(bool verify) {
     SSL_library_init();
     SSL_CTX *ctx;
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     SSLeay_add_ssl_algorithms();
     SSL_load_error_strings();
 #else
@@ -172,7 +172,7 @@ SSL_CTX *initSSL(bool verify) {
     return ctx;
 }
 
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 void CloseSocket(SOCKET socket) {
     close(socket);
 }
@@ -250,7 +250,7 @@ string send_ssl_payload(string host, int port, string packet, bool verify) {
     if (!is_ip_address(host)) {
         host = resolvdnsname(host);
     }
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     string result;
     int sockfd;
     int sslsockfd;
@@ -362,7 +362,7 @@ string send_payload(string host, int port, string packet) {
     if (!is_ip_address(host)) {
         host = resolvdnsname(host);
     }
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     string result;
     int sockfd;
     struct sockaddr_in sa;
@@ -453,7 +453,7 @@ string send_payload(string host, int port, string packet) {
 //downloads a file to outfile from the HTTPResponse object
 //if outfile exists no file will be written
 void downloadFile(HTTPResponse response, string outfile) {
-#ifdef __unix__
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (std::filesystem::exists(outfile)) {
         return;
     }
