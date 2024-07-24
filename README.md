@@ -1,7 +1,14 @@
 # HTTPRequests C++
+![C++ Logo](https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/ISO_C%2B%2B_Logo.svg/50px-ISO_C%2B%2B_Logo.svg.png)
+
 Easy to use Cross-Platform library that can handle a variety of HTTP client side communication within Windows and POSIX C++ applications
 
 **Requires the OpenSSL library to be installed on the system**
+
+# Quick Links
+
+ - [Function Declarations](FUNCTIONS.md)
+ - [Structure Declarations](STRUCTURES.md)
 
 # How do I import this?
 
